@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Conversation;
 use App\Models\User;
 use App\Services\ConversationService;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +15,17 @@ class ConversationController extends Controller
     public function __construct(
         protected ConversationService $conversationService
     ) {
+    }
+
+    public function index(Request $request): JsonResponse
+    {
+        $conversations = $this->conversationService
+            ->listForUser($request->user());
+
+        return response()->json([
+            'message' => 'Conversations retrieved.',
+            'data' => $conversations,
+        ]);
     }
 
     public function store(Request $request): JsonResponse
@@ -38,5 +50,20 @@ class ConversationController extends Controller
             'message' => 'Conversation ready.',
             'conversation' => $conversation->load('users'),
         ], 201);
+    }
+
+    public function show(
+        Request $request,
+        Conversation $conversation
+    ): JsonResponse {
+        $conversation = $this->conversationService->findForUser(
+            $conversation,
+            $request->user()
+        );
+
+        return response()->json([
+            'message' => 'Conversation retrieved.',
+            'data' => $conversation,
+        ]);
     }
 }

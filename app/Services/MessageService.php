@@ -6,6 +6,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class MessageService
@@ -31,5 +32,48 @@ class MessageService
                 'body' => $body,
             ]);
         });
+    }
+
+    public function list(
+        Conversation $conversation,
+        User $user,
+        int $perPage = 20
+    ): LengthAwarePaginator {
+        $isParticipant = $conversation->users()
+            ->whereKey($user->id)
+            ->exists();
+
+        if (! $isParticipant) {
+            throw new AuthorizationException(
+                'You are not a member of this conversation.'
+            );
+        }
+
+        return $conversation->messages()
+            ->with('sender')
+            ->latest()
+            ->paginate($perPage);
+    }
+
+    public function markAsRead(
+        Conversation $conversation,
+        User $user
+    ): int {
+        $isParticipant = $conversation->users()
+            ->whereKey($user->id)
+            ->exists();
+
+        if (! $isParticipant) {
+            throw new AuthorizationException(
+                'You are not a member of this conversation.'
+            );
+        }
+
+        return $conversation->messages()
+            ->whereNull('read_at')
+            ->where('sender_id', '!=', $user->id)
+            ->update([
+                'read_at' => now(),
+            ]);
     }
 }

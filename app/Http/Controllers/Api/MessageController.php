@@ -34,4 +34,36 @@ class MessageController extends Controller
             'data' => $message->load('sender'),
         ], 201);
     }
+
+    public function index(
+        Request $request,
+        Conversation $conversation
+    ): JsonResponse {
+        $messages = $this->messageService->list(
+            $conversation,
+            $request->user()
+        );
+
+        return response()->json([
+            'message' => 'Messages retrieved.',
+            'data' => $messages,
+        ]);
+    }
+
+    public function markAsRead(
+        Request $request,
+        Conversation $conversation
+    ): JsonResponse {
+        $count = $this->messageService->markAsRead(
+            $conversation,
+            $request->user()
+        );
+
+        return response()->json([
+            'message' => 'Messages marked as read.',
+            'data' => [
+                'updated_count' => $count,
+            ],
+        ]);
+}
 }
