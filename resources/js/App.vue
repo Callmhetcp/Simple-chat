@@ -1322,10 +1322,10 @@ onUnmounted(() => {
                 ================================================== -->
 
                 <aside
-                    class="h-full w-full shrink-0 flex-col border-r border-slate-800 bg-slate-900 md:flex md:w-[320px] lg:w-[380px] xl:w-[420px]"
+                    class="relative h-full w-full shrink-0 flex-col border-r border-slate-800 bg-slate-900 md:flex md:w-[320px] lg:w-[380px] xl:w-[420px]"
                     :class="
                         activeConversation
-                            ? 'hidden'
+                            ? 'hidden md:flex'
                             : 'flex'
                     "
                 >
@@ -1485,7 +1485,7 @@ onUnmounted(() => {
                     <!-- CONVERSATION LIST -->
 
                     <div
-                        class="min-h-0 flex-1 overflow-y-auto"
+                        class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
                     >
                         <div
                             v-if="
@@ -1526,7 +1526,7 @@ onUnmounted(() => {
                             v-for="conversation in conversations"
                             :key="conversation.id"
                             type="button"
-                            class="flex w-full gap-3 border-b border-slate-800 p-4 text-left transition hover:bg-slate-800"
+                            class="flex w-full gap-3 border-b border-slate-800/80 px-4 py-3.5 text-left transition hover:bg-slate-800"
                             :class="{
                                 'bg-slate-800':
                                     activeConversation?.id ===
@@ -1618,12 +1618,34 @@ onUnmounted(() => {
 
                     <!-- CURRENT USER -->
 
+                    <!-- MOBILE BOTTOM NAVIGATION -->
                     <div
-                        class="shrink-0 border-t border-slate-800 bg-slate-900 p-4"
+                        class="shrink-0 border-t border-slate-800 bg-slate-900 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 md:hidden"
                     >
-                        <div
-                            class="flex items-center gap-3"
-                        >
+                        <div class="grid grid-cols-2 gap-1">
+                            <button
+                                type="button"
+                                class="flex flex-col items-center justify-center gap-1 rounded-xl bg-slate-800 py-2 text-emerald-400"
+                            >
+                                <span class="text-xl leading-none">💬</span>
+                                <span class="text-[11px] font-semibold">Chats</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                class="flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-slate-500 transition hover:bg-slate-800 hover:text-white"
+                            >
+                                <span class="text-xl leading-none">👤</span>
+                                <span class="text-[11px] font-semibold">Profile</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- DESKTOP ACCOUNT FOOTER -->
+                    <div
+                        class="hidden shrink-0 border-t border-slate-800 bg-slate-900 p-4 md:block"
+                    >
+                        <div class="flex items-center gap-3">
                             <div
                                 class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-700 font-bold"
                             >
@@ -1634,18 +1656,12 @@ onUnmounted(() => {
                                 }}
                             </div>
 
-                            <div
-                                class="min-w-0"
-                            >
-                                <p
-                                    class="truncate font-semibold text-white"
-                                >
+                            <div class="min-w-0">
+                                <p class="truncate font-semibold text-white">
                                     {{ user.name }}
                                 </p>
 
-                                <p
-                                    class="truncate text-xs text-slate-500"
-                                >
+                                <p class="truncate text-xs text-slate-500">
                                     @{{ user.username }}
                                 </p>
                             </div>
