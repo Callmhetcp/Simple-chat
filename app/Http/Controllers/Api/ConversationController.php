@@ -28,6 +28,36 @@ class ConversationController extends Controller
         ]);
     }
 
+    public function users(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'search' => ['required', 'string', 'min:1', 'max:100'],
+        ]);
+
+        $search = $validated['search'];
+
+        $users = User::query()
+            ->where('id', '!=', $request->user()->id)
+            ->where(function ($query) use ($search) {
+                $query->where('name', 'like', "%{$search}%")
+                    ->orWhere('username', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            })
+            ->select([
+                'id',
+                'name',
+                'username',
+                'email',
+            ])
+            ->orderBy('name')
+            ->limit(20)
+            ->get();
+
+        return response()->json([
+            'message' => 'Users retrieved.',
+            'data' => $users,
+        ]);
+    }
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([

@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-   use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
     /**
      * The attributes that are mass assignable.
@@ -57,10 +57,13 @@ class User extends Authenticatable
         return $this->belongsToMany(Conversation::class);
     }
 
-    
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class, 'sender_id');
     }
 
+    public function reactions(): HasMany
+    {
+        return $this->hasMany(MessageReaction::class);
+    }
 }

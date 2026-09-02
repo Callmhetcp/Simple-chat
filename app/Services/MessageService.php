@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -27,10 +28,14 @@ class MessageService
                 );
             }
 
-            return $conversation->messages()->create([
+            $message = $conversation->messages()->create([
                 'sender_id' => $sender->id,
                 'body' => $body,
             ]);
+
+            broadcast(new MessageSent($message))->toOthers();
+
+            return $message;
         });
     }
 
@@ -75,5 +80,36 @@ class MessageService
             ->update([
                 'read_at' => now(),
             ]);
+    }
+
+    public function delete(
+        Message $message,
+        User $user
+    ): void {
+        if ($message->sender_id !== $user->id) {
+            throw new AuthorizationException(
+                'You can only delete your own messages.'
+            );
+        }
+
+        $message->delete();
+    }
+
+    public function update(
+        Message $message,
+        User $user,
+        string $body
+    ): Message {
+        if ($message->sender_id !== $user->id) {
+            throw new AuthorizationException(
+                'You can only edit your own messages.'
+            );
+        }
+
+        $message->update([
+            'body' => $body,
+        ]);
+
+        return $message->fresh()->load('sender');
     }
 }
