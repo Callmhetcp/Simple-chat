@@ -1,59 +1,80 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 💬 Simple Chat
 
 <p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+  <strong>A WhatsApp-style private messaging application built with Laravel 12, Vue.js, Tailwind CSS, and MySQL.</strong>
 </p>
 
-## About Laravel
+<p align="center">
+  <a href="https://github.com/Calmhetcp/Simple-chat">
+    <img src="https://img.shields.io/badge/GitHub-Calmhetcp%2FSimple--chat-black?logo=github" alt="GitHub Repository">
+  </a>
+  <img src="https://img.shields.io/badge/Laravel-12-red?logo=laravel" alt="Laravel 12">
+  <img src="https://img.shields.io/badge/Vue.js-3-42b883?logo=vue.js" alt="Vue.js 3">
+  <img src="https://img.shields.io/badge/Tailwind%20CSS-4-06B6D4?logo=tailwindcss" alt="Tailwind CSS">
+  <img src="https://img.shields.io/badge/MySQL-Database-blue?logo=mysql" alt="MySQL">
+</p>
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 📌 About the Project
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+**Simple Chat** is a private messaging application developed as a practical WhatsApp-style chat challenge.
 
-## Learning Laravel
+The application allows registered users to search for other registered users, start private conversations, exchange messages, edit and delete their messages, react to messages, and keep track of unread messages.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+The interface is designed to provide a familiar messaging experience across **mobile, tablet, and desktop devices**.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+This project focuses on demonstrating practical full-stack Laravel development rather than building only a frontend interface.
 
-## Laravel Sponsors
+---
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## ✨ Features
 
-### Premium Partners
+### 🔐 Authentication
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+- User registration
+- User login
+- User logout
+- Protected API endpoints
+- Laravel Sanctum authentication
 
-## Contributing
+### 👥 User Search
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+- Search registered users
+- Search by name
+- Search by username
+- Search by email
+- Current user excluded from search results
+- Start a conversation with another registered user
 
-## Code of Conduct
+### 💬 Private Conversations
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- One-to-one private conversations
+- Create new conversations
+- Open existing conversations
+- Prevent duplicate private conversations
+- Prevent users from messaging themselves
+- Conversation history
+- Latest message preview
+- Private conversation authorization
 
-## Security Vulnerabilities
+### 📨 Messaging
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+- Send private messages
+- View message history
+- Edit messages
+- Delete messages
+- Message timestamps
+- Read/unread message tracking
+- Mark messages as read
 
-## License
+### 🔴 Unread Messages
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+The application maintains a separate unread message count.
+
+A message is considered unread when:
+
+```text
+read_at IS NULL
+AND
+sender_id != current_user_idework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
