@@ -5,6 +5,14 @@ import App from './App.vue';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {
+            // The app remains fully usable when service workers are unavailable.
+        });
+    });
+}
+
 window.Pusher = Pusher;
 
 const token = localStorage.getItem('auth_token');
@@ -31,5 +39,15 @@ window.Echo = new Echo({
         },
     },
 });
+
+window.setEchoToken = (newToken) => {
+    const headers = window.Echo?.connector?.options?.auth?.headers;
+
+    if (headers) {
+        headers.Authorization = newToken
+            ? `Bearer ${newToken}`
+            : '';
+    }
+};
 
 createApp(App).mount('#app');

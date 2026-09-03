@@ -58,13 +58,68 @@ class ConversationController extends Controller
             'data' => $users,
         ]);
     }
+
+    public function friends(Request $request): JsonResponse
+    {
+        $friends = $request->user()->friendships()
+            ->where('status', 'accepted')
+            ->with('friend:id,name,username,email')
+            ->get()
+            ->pluck('friend');
+
+        return response()->json([
+            'message' => 'Friends retrieved.',
+            'data' => $friends->values(),
+        ]);
+    }
+
+    public function addFriend(Request $request, User $user): JsonResponse
+    {
+        if ($request->user()->is($user)) {
+            return response()->json([
+                'message' => 'You cannot add yourself as a friend.',
+            ], 422);
+        }
+
+        $friendship = $request->user()->friendships()->firstOrCreate(
+            ['friend_id' => $user->id],
+            ['status' => 'accepted']
+        );
+
+        return response()->json([
+            'message' => 'Friend added.',
+            'friend' => $friendship->load('friend')->friend,
+        ], 201);
+    }
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'user_id' => ['nullable', 'integer', 'exists:users,id', 'required_without:user_ids'],
+            'name' => ['nullable', 'string', 'max:100', 'required_with:user_ids'],
+            'user_ids' => ['nullable', 'array', 'min:1', 'required_without:user_id'],
+            'user_ids.*' => ['integer', 'exists:users,id'],
         ]);
 
         $user = $request->user();
+
+        if (! empty($validated['user_ids'])) {
+            $memberIds = array_values(array_filter(
+                $validated['user_ids'],
+                fn (int $memberId): bool => $memberId !== $user->id
+            ));
+
+            $conversation = $this->conversationService->createGroup(
+                $user,
+                $validated['name'],
+                $memberIds
+            );
+
+            return response()->json([
+                'message' => 'Group conversation created.',
+                'conversation' => $conversation->load('users'),
+            ], 201);
+        }
+
         $otherUser = User::findOrFail($validated['user_id']);
 
         try {
@@ -94,6 +149,27 @@ class ConversationController extends Controller
         return response()->json([
             'message' => 'Conversation retrieved.',
             'data' => $conversation,
+        ]);
+    }
+
+    public function addMembers(
+        Request $request,
+        Conversation $conversation
+    ): JsonResponse {
+        $validated = $request->validate([
+            'user_ids' => ['required', 'array', 'min:1'],
+            'user_ids.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $conversation = $this->conversationService->addGroupMembers(
+            $conversation,
+            $request->user(),
+            $validated['user_ids']
+        );
+
+        return response()->json([
+            'message' => 'Group members added.',
+            'conversation' => $conversation,
         ]);
     }
 }

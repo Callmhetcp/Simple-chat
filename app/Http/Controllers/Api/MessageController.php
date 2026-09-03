@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Events\MessagesRead;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\MessageService;
@@ -21,13 +22,15 @@ class MessageController extends Controller
         Conversation $conversation
     ): JsonResponse {
         $validated = $request->validate([
-            'body' => ['required', 'string', 'max:5000'],
+            'body' => ['nullable', 'string', 'max:5000', 'required_without:attachment'],
+            'attachment' => ['nullable', 'file', 'max:102400', 'mimes:jpg,jpeg,png,gif,webp,mp4,mov,avi,mkv,webm,pdf,doc,docx,txt'],
         ]);
 
         $message = $this->messageService->send(
             $conversation,
             $request->user(),
-            $validated['body']
+            $validated['body'] ?? null,
+            $request->file('attachment')
         );
 
         return response()->json([
@@ -40,13 +43,19 @@ class MessageController extends Controller
         Request $request,
         Conversation $conversation
     ): JsonResponse {
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+        ]);
+
         $messages = $this->messageService->list(
             $conversation,
-            $request->user()
+            $request->user(),
+            20,
+            $validated['search'] ?? null
         );
 
         // Load reactions and the user who made each reaction.
-        $messages->load('reactions.user');
+        $messages->getCollection()->load('reactions.user');
 
         return response()->json([
             'message' => 'Messages retrieved.',
@@ -110,6 +119,13 @@ class MessageController extends Controller
             $conversation,
             $request->user()
         );
+
+        if ($count > 0) {
+            broadcast(new MessagesRead(
+                $conversation,
+                $request->user()->id
+            ))->toOthers();
+        }
 
         return response()->json([
             'message' => 'Messages marked as read.',

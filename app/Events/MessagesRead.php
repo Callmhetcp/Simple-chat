@@ -2,19 +2,20 @@
 
 namespace App\Events;
 
-use App\Models\MessageReaction;
+use App\Models\Conversation;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class ReactionAdded implements ShouldBroadcast
+class MessagesRead implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public function __construct(
-        public MessageReaction $reaction
+        public Conversation $conversation,
+        public int $readerId
     ) {
     }
 
@@ -22,26 +23,22 @@ class ReactionAdded implements ShouldBroadcast
     {
         return [
             new PresenceChannel(
-                'conversation.' . $this->reaction->message->conversation_id
+                'conversation.' . $this->conversation->id
             ),
         ];
     }
 
     public function broadcastAs(): string
     {
-        return 'reaction.added';
+        return 'messages.read';
     }
 
     public function broadcastWith(): array
     {
         return [
-            'id' => $this->reaction->id,
-            'message_id' => $this->reaction->message_id,
-            'user_id' => $this->reaction->user_id,
-            'type' => $this->reaction->type,
-            'created_at' => $this->reaction->created_at,
-            'updated_at' => $this->reaction->updated_at,
-            'user' => $this->reaction->user,
+            'conversation_id' => $this->conversation->id,
+            'reader_id' => $this->readerId,
+            'read_at' => now(),
         ];
     }
 }

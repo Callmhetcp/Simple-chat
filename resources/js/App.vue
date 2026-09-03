@@ -19,16 +19,49 @@ const success = ref('');
 const conversations = ref([]);
 const activeConversation = ref(null);
 const messages = ref([]);
+const otherUserTyping = ref(false);
+const otherUserOnline = ref(false);
+const messageScrollContainer = ref(null);
+const loadingOlderMessages = ref(false);
+const hasOlderMessages = ref(false);
+const nextMessagePage = ref(2);
 
 const messageBody = ref('');
+const messageSearchQuery = ref('');
+const messageFileInput = ref(null);
+const selectedMessageFile = ref(null);
+const showProfile = ref(false);
+const profileForm = ref({
+    name: '',
+    username: '',
+    email: '',
+    password: '',
+    password_confirmation: '',
+});
+const savingProfile = ref(false);
+const previewImage = ref(null);
 
 const searchQuery = ref('');
 const searchedUsers = ref([]);
 const searchingUsers = ref(false);
+const showGroupCreator = ref(false);
+const groupName = ref('');
+const groupMembers = ref([]);
+const friends = ref([]);
+const loadingFriends = ref(false);
+const showMemberManager = ref(false);
+const additionalMembers = ref([]);
+const showGroupMembers = ref(false);
 
 const loadingConversations = ref(false);
 const loadingMessages = ref(false);
 const sendingMessage = ref(false);
+const incomingAlert = ref(null);
+const notificationsEnabled = ref(
+    typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted',
+);
+    const knownLatestMessageIds = new Map();
 
 const editingMessage = ref(null);
 const editingBody = ref('');
@@ -36,6 +69,7 @@ const editingBody = ref('');
 const deletingMessageId = ref(null);
 
 const reactingMessageId = ref(null);
+const activeReactionMessageId = ref(null);
 
 const showEmojiPicker = ref(false);
 
@@ -113,6 +147,184 @@ const getOtherUser = (conversation) => {
     );
 };
 
+const isGroupConversation = (conversation) => {
+    return Number(conversation?.users?.length ?? 0) > 2 || Boolean(conversation?.name);
+};
+
+const getConversationTitle = (conversation) => {
+    return conversation?.name ?? getOtherUser(conversation)?.name ?? 'Unknown user';
+};
+
+const openGroupCreator = async () => {
+    showGroupCreator.value = true;
+    groupName.value = '';
+    groupMembers.value = [];
+    searchQuery.value = '';
+    searchedUsers.value = [];
+
+    loadingFriends.value = true;
+
+    try {
+        const response = await fetch('/api/friends', {
+            headers: apiHeaders(),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to load friends.');
+        }
+
+        friends.value = data.data ?? [];
+    } catch (err) {
+        error.value = err.message || 'Failed to load friends.';
+        friends.value = [];
+    } finally {
+        loadingFriends.value = false;
+    }
+};
+
+const closeGroupCreator = () => {
+    showGroupCreator.value = false;
+    groupName.value = '';
+    groupMembers.value = [];
+    searchQuery.value = '';
+    searchedUsers.value = [];
+    friends.value = [];
+};
+
+const toggleGroupMember = (selectedUser) => {
+    const memberIndex = groupMembers.value.findIndex(
+        (member) => Number(member.id) === Number(selectedUser.id),
+    );
+
+    if (memberIndex === -1) {
+        groupMembers.value.push(selectedUser);
+    } else {
+        groupMembers.value.splice(memberIndex, 1);
+    }
+};
+
+const openMemberManager = async () => {
+    additionalMembers.value = [];
+    showMemberManager.value = true;
+
+    if (!friends.value.length) {
+        await openGroupCreator();
+        showGroupCreator.value = false;
+    }
+};
+
+const closeMemberManager = () => {
+    showMemberManager.value = false;
+    additionalMembers.value = [];
+};
+
+const openGroupMembers = () => {
+    showGroupMembers.value = true;
+};
+
+const closeGroupMembers = () => {
+    showGroupMembers.value = false;
+};
+
+const toggleAdditionalMember = (selectedUser) => {
+    const memberIndex = additionalMembers.value.findIndex(
+        (member) => Number(member.id) === Number(selectedUser.id),
+    );
+
+    if (memberIndex === -1) {
+        additionalMembers.value.push(selectedUser);
+    } else {
+        additionalMembers.value.splice(memberIndex, 1);
+    }
+};
+
+const isConversationMember = (selectedUser) => {
+    return activeConversation.value?.users?.some(
+        (member) => Number(member.id) === Number(selectedUser.id),
+    );
+};
+
+const addMembersToGroup = async () => {
+    if (!activeConversation.value || !additionalMembers.value.length) {
+        return;
+    }
+
+    try {
+        const response = await fetch(
+            `/api/conversations/${activeConversation.value.id}/members`,
+            {
+                method: 'PATCH',
+                headers: {
+                    ...apiHeaders(),
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_ids: additionalMembers.value.map((member) => member.id),
+                }),
+            },
+        );
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to add group members.');
+        }
+
+        activeConversation.value = data.conversation;
+        const conversationIndex = conversations.value.findIndex(
+            (conversation) => Number(conversation.id) === Number(data.conversation.id),
+        );
+        if (conversationIndex !== -1) {
+            conversations.value[conversationIndex] = data.conversation;
+        }
+        closeMemberManager();
+    } catch (err) {
+        error.value = err.message || 'Failed to add group members.';
+    }
+};
+
+const isGroupMember = (selectedUser) => {
+    return groupMembers.value.some(
+        (member) => Number(member.id) === Number(selectedUser.id),
+    );
+};
+
+const createGroup = async () => {
+    if (!groupName.value.trim() || groupMembers.value.length === 0) {
+        error.value = 'Add at least one member and a group name.';
+        return;
+    }
+
+    loadingConversations.value = true;
+
+    try {
+        const response = await fetch('/api/conversations', {
+            method: 'POST',
+            headers: {
+                ...apiHeaders(),
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                name: groupName.value.trim(),
+                user_ids: groupMembers.value.map((member) => member.id),
+            }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to create group.');
+        }
+
+        conversations.value.unshift(data.conversation);
+        closeGroupCreator();
+        await selectConversation(data.conversation);
+    } catch (err) {
+        error.value = err.message || 'Failed to create group.';
+    } finally {
+        loadingConversations.value = false;
+    }
+};
+
 const getUserInitial = (selectedUser) => {
     return (
         selectedUser?.name
@@ -131,9 +343,89 @@ const resetMessages = () => {
     success.value = '';
 };
 
+const openProfile = () => {
+    profileForm.value = {
+        name: user.value?.name ?? '',
+        username: user.value?.username ?? '',
+        email: user.value?.email ?? '',
+        password: '',
+        password_confirmation: '',
+    };
+    showProfile.value = true;
+};
+
+const closeProfile = () => {
+    showProfile.value = false;
+};
+
+const updateProfile = async () => {
+    savingProfile.value = true;
+    resetMessages();
+
+    try {
+        const response = await fetch('/api/user', {
+            method: 'PATCH',
+            headers: {
+                ...apiHeaders(),
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(profileForm.value),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to update profile.');
+        }
+
+        user.value = data.user;
+        showProfile.value = false;
+        success.value = 'Profile updated successfully.';
+    } catch (err) {
+        error.value = err.message || 'Failed to update profile.';
+    } finally {
+        savingProfile.value = false;
+    }
+};
+
+const enableNotifications = async () => {
+    if (!('Notification' in window)) {
+        error.value = 'Browser notifications are not supported.';
+        return;
+    }
+
+    const permission = await Notification.requestPermission();
+    notificationsEnabled.value = permission === 'granted';
+
+    if (permission === 'denied') {
+        error.value = 'Browser notifications are blocked.';
+    }
+};
+
+const ringNotification = () => {
+    try {
+        const audioContext = new AudioContext();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+
+        oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(660, audioContext.currentTime + 0.18);
+        gain.gain.setValueAtTime(0.25, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(
+            0.001,
+            audioContext.currentTime + 0.45,
+        );
+
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.45);
+    } catch {
+        // Browser autoplay policies may block the alert tone.
+    }
+};
+
 const switchMode = (newMode) => {
     mode.value = newMode;
-
     name.value = '';
     username.value = '';
     email.value = '';
@@ -170,6 +462,7 @@ const handleLogin = async () => {
 
         token.value = data.token;
         user.value = data.user;
+        window.setEchoToken?.(data.token);
 
         password.value = '';
 
@@ -216,6 +509,7 @@ const handleRegister = async () => {
 
         token.value = data.token;
         user.value = data.user;
+        window.setEchoToken?.(data.token);
 
         success.value = 'Account created successfully.';
 
@@ -255,6 +549,7 @@ const loadUser = async () => {
 
         token.value = null;
         user.value = null;
+        window.setEchoToken?.(null);
     }
 };
 
@@ -279,6 +574,15 @@ const loadConversations = async () => {
         }
 
         conversations.value = data.data?.data ?? [];
+
+        conversations.value.forEach((conversation) => {
+            const latestMessage = conversation.latest_message;
+
+            knownLatestMessageIds.set(
+                Number(conversation.id),
+                latestMessage?.id ? Number(latestMessage.id) : 0,
+            );
+        });
     } catch (err) {
         error.value =
             err.message || 'Failed to load conversations.';
@@ -293,6 +597,8 @@ const selectConversation = async (conversation) => {
     }
 
     activeConversation.value = conversation;
+    messageSearchQuery.value = '';
+    activeReactionMessageId.value = null;
 
     showEmojiPicker.value = false;
 
@@ -301,11 +607,17 @@ const selectConversation = async (conversation) => {
     subscribeToConversation(conversation);
 
     await loadMessages(conversation);
+
+    await markConversationAsRead(conversation);
+    startMessageRefresh();
 };
 
 const closeMobileChat = () => {
     activeConversation.value = null;
     messages.value = [];
+    activeReactionMessageId.value = null;
+    hasOlderMessages.value = false;
+    nextMessagePage.value = 2;
 
     showEmojiPicker.value = false;
 
@@ -317,10 +629,12 @@ const closeMobileChat = () => {
 const loadMessages = async (conversation) => {
     loadingMessages.value = true;
     messages.value = [];
+    hasOlderMessages.value = false;
+    nextMessagePage.value = 2;
 
     try {
         const response = await fetch(
-            `/api/conversations/${conversation.id}/messages`,
+            `/api/conversations/${conversation.id}/messages?page=1&search=${encodeURIComponent(messageSearchQuery.value.trim())}`,
             {
                 headers: apiHeaders(),
             },
@@ -342,11 +656,267 @@ const loadMessages = async (conversation) => {
             ...message,
             reactions: message.reactions ?? [],
         }));
+
+        messages.value = sortMessagesByTime(
+            messages.value,
+        );
+
+        hasOlderMessages.value =
+            Number(data.data?.current_page ?? 1) <
+            Number(data.data?.last_page ?? 1);
     } catch (err) {
         error.value =
             err.message || 'Failed to load messages.';
     } finally {
         loadingMessages.value = false;
+    }
+};
+
+let messageRefreshInterval = null;
+let incomingAlertTimeout = null;
+
+const showIncomingAlert = (message) => {
+    if (Number(message.sender_id) === Number(user.value?.id)) {
+        return;
+    }
+
+    incomingAlert.value = {
+        sender: message.sender?.name ?? 'New message',
+        body: message.body || 'Sent an attachment',
+    };
+
+    clearTimeout(incomingAlertTimeout);
+    incomingAlertTimeout = setTimeout(() => {
+        incomingAlert.value = null;
+    }, 5000);
+
+    ringNotification();
+
+    if (
+        notificationsEnabled.value &&
+        document.hidden
+    ) {
+        const notification = new Notification(
+            message.sender?.name ?? 'New message',
+            {
+                body: message.body || 'Sent an attachment',
+                tag: `conversation-${message.conversation_id}`,
+            },
+        );
+
+        notification.onclick = () => window.focus();
+    }
+};
+
+const refreshConversationNotifications = async () => {
+    if (!token.value) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/conversations', {
+            headers: apiHeaders(),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            return;
+        }
+
+        const latestConversations = data.data?.data ?? [];
+
+        latestConversations.forEach((conversation) => {
+            const latestMessage = conversation.latest_message;
+            const conversationId = Number(conversation.id);
+            const latestMessageId = Number(latestMessage?.id);
+            const knownMessageId = knownLatestMessageIds.get(conversationId);
+
+            if (
+                latestMessage?.id &&
+                knownMessageId !== undefined &&
+                latestMessageId !== knownMessageId
+            ) {
+                showIncomingAlert(latestMessage);
+            }
+
+            if (latestMessage?.id) {
+                knownLatestMessageIds.set(conversationId, latestMessageId);
+            }
+        });
+
+        conversations.value = latestConversations;
+    } catch {
+        // The next refresh will retry when the API is available again.
+    }
+};
+
+let conversationRefreshInterval = null;
+
+const startConversationRefresh = () => {
+    clearInterval(conversationRefreshInterval);
+    conversationRefreshInterval = setInterval(
+        refreshConversationNotifications,
+        3000,
+    );
+};
+
+const refreshMessages = async () => {
+    if (!activeConversation.value || loadingMessages.value) {
+        return;
+    }
+
+    try {
+        const response = await fetch(
+            `/api/conversations/${activeConversation.value.id}/messages?page=1&search=${encodeURIComponent(messageSearchQuery.value.trim())}`,
+            {
+                headers: apiHeaders(),
+            },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return;
+        }
+
+        const latestMessages = (data.data?.data ?? []).map((message) => ({
+            ...message,
+            reactions: message.reactions ?? [],
+        }));
+        const existingIds = new Set(
+            messages.value.map((message) => Number(message.id)),
+        );
+
+        latestMessages
+            .filter((message) => !existingIds.has(Number(message.id)))
+            .forEach(showIncomingAlert);
+
+        const messagesById = new Map(
+            [...messages.value, ...latestMessages].map((message) => [
+                Number(message.id),
+                message,
+            ]),
+        );
+
+        messages.value = sortMessagesByTime([...messagesById.values()]);
+    } catch {
+        // Realtime delivery remains available when the fallback request fails.
+    }
+};
+
+const startMessageRefresh = () => {
+    clearInterval(messageRefreshInterval);
+    messageRefreshInterval = setInterval(refreshMessages, 3000);
+};
+
+const loadOlderMessages = async () => {
+    if (
+        !activeConversation.value ||
+        loadingOlderMessages.value ||
+        !hasOlderMessages.value
+    ) {
+        return;
+    }
+
+    const scrollContainer = messageScrollContainer.value;
+    const previousHeight = scrollContainer?.scrollHeight ?? 0;
+    const previousTop = scrollContainer?.scrollTop ?? 0;
+
+    loadingOlderMessages.value = true;
+
+    try {
+        const response = await fetch(
+            `/api/conversations/${activeConversation.value.id}/messages?page=${nextMessagePage.value}&search=${encodeURIComponent(messageSearchQuery.value.trim())}`,
+            {
+                headers: apiHeaders(),
+            },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.message || 'Failed to load older messages.',
+            );
+        }
+
+        const olderMessages = (
+            data.data?.data ?? []
+        ).map((message) => ({
+            ...message,
+            reactions: message.reactions ?? [],
+        }));
+
+        messages.value = sortMessagesByTime([
+            ...olderMessages,
+            ...messages.value,
+        ]);
+
+        hasOlderMessages.value =
+            Number(data.data?.current_page ?? nextMessagePage.value) <
+            Number(data.data?.last_page ?? nextMessagePage.value);
+        nextMessagePage.value += 1;
+
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+
+        if (scrollContainer) {
+            scrollContainer.scrollTop =
+                scrollContainer.scrollHeight - previousHeight + previousTop;
+        }
+    } catch (err) {
+        error.value =
+            err.message || 'Failed to load older messages.';
+    } finally {
+        loadingOlderMessages.value = false;
+    }
+};
+
+let messageSearchTimeout = null;
+
+const searchMessages = () => {
+    clearTimeout(messageSearchTimeout);
+
+    messageSearchTimeout = setTimeout(() => {
+        if (activeConversation.value) {
+            loadMessages(activeConversation.value);
+        }
+    }, 300);
+};
+
+const handleMessageScroll = (event) => {
+    if (event.currentTarget.scrollTop <= 80) {
+        loadOlderMessages();
+    }
+};
+
+const markConversationAsRead = async (conversation) => {
+    try {
+        const response = await fetch(
+            `/api/conversations/${conversation.id}/messages/read`,
+            {
+                method: 'PATCH',
+                headers: apiHeaders(),
+            },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.message || 'Failed to mark messages as read.',
+            );
+        }
+
+        const conversationIndex = conversations.value.findIndex(
+            (item) => Number(item.id) === Number(conversation.id),
+        );
+
+        if (conversationIndex !== -1) {
+            conversations.value[conversationIndex].unread_messages_count = 0;
+        }
+    } catch (err) {
+        error.value =
+            err.message || 'Failed to mark messages as read.';
     }
 };
 
@@ -390,6 +960,27 @@ const searchUsers = () => {
             searchingUsers.value = false;
         }
     }, 300);
+};
+
+const addFriend = async (selectedUser) => {
+    try {
+        const response = await fetch(`/api/friends/${selectedUser.id}`, {
+            method: 'POST',
+            headers: apiHeaders(),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to add friend.');
+        }
+
+        if (!friends.value.some((friend) => Number(friend.id) === Number(data.friend.id))) {
+            friends.value.push(data.friend);
+        }
+        success.value = `${data.friend.name} added to your friends.`;
+    } catch (err) {
+        error.value = err.message || 'Failed to add friend.';
+    }
 };
 
 const openUserConversation = async (selectedUser) => {
@@ -462,7 +1053,7 @@ const sendMessage = async () => {
     const body = messageBody.value.trim();
 
     if (
-        !body ||
+        (!body && !selectedMessageFile.value) ||
         !activeConversation.value ||
         sendingMessage.value
     ) {
@@ -474,17 +1065,22 @@ const sendMessage = async () => {
     resetMessages();
 
     try {
+        const formData = new FormData();
+
+        if (body) {
+            formData.append('body', body);
+        }
+
+        if (selectedMessageFile.value) {
+            formData.append('attachment', selectedMessageFile.value);
+        }
+
         const response = await fetch(
             `/api/conversations/${activeConversation.value.id}/messages`,
             {
                 method: 'POST',
-                headers: {
-                    ...apiHeaders(),
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    body,
-                }),
+                headers: apiHeaders(),
+                body: formData,
             },
         );
 
@@ -511,9 +1107,17 @@ const sendMessage = async () => {
                 reactions:
                     sentMessage.reactions ?? [],
             });
+
+            messages.value = sortMessagesByTime(
+                messages.value,
+            );
         }
 
         messageBody.value = '';
+        selectedMessageFile.value = null;
+        if (messageFileInput.value) {
+            messageFileInput.value.value = '';
+        }
         showEmojiPicker.value = false;
 
         await loadConversations();
@@ -534,6 +1138,39 @@ const sendMessage = async () => {
             err.message || 'Failed to send message.';
     } finally {
         sendingMessage.value = false;
+    }
+};
+
+const selectMessageFile = (event) => {
+    selectedMessageFile.value = event.target.files?.[0] ?? null;
+};
+
+const clearSelectedMessageFile = () => {
+    selectedMessageFile.value = null;
+
+    if (messageFileInput.value) {
+        messageFileInput.value.value = '';
+    }
+};
+
+const openImagePreview = (message) => {
+    if (!message?.attachment_url) {
+        return;
+    }
+
+    previewImage.value = {
+        url: message.attachment_url,
+        name: message.attachment_name ?? 'Image preview',
+    };
+};
+
+const closeImagePreview = () => {
+    previewImage.value = null;
+};
+
+const handlePreviewKeydown = (event) => {
+    if (event.key === 'Escape') {
+        closeImagePreview();
     }
 };
 
@@ -615,6 +1252,10 @@ const updateMessage = async () => {
                     messages.value[index].reactions ??
                     [],
             };
+
+            messages.value = sortMessagesByTime(
+                messages.value,
+            );
         } else if (index !== -1) {
             messages.value[index].body = body;
         }
@@ -776,72 +1417,36 @@ const toggleReaction = async (
 
     const alreadyReacted = hasReacted(
         message,
-        type,
     );
 
     try {
-        if (alreadyReacted) {
-            const response = await fetch(
-                `/api/conversations/${activeConversation.value.id}/messages/${message.id}/reactions`,
-                {
-                    method: 'DELETE',
-                    headers: {
-                        ...apiHeaders(),
-                        'Content-Type':
-                            'application/json',
-                    },
-                    body: JSON.stringify({
-                        type,
-                    }),
+        const response = await fetch(
+            `/api/conversations/${activeConversation.value.id}/messages/${message.id}/reactions`,
+            {
+                method: alreadyReacted ? 'DELETE' : 'POST',
+                headers: {
+                    ...apiHeaders(),
+                    'Content-Type': 'application/json',
                 },
+                body: JSON.stringify({ type }),
+            },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.message || 'Failed to update reaction.',
             );
+        }
 
-            const data =
-                await response.json();
-
-            if (!response.ok) {
-                throw new Error(
-                    data.message ||
-                        'Failed to remove reaction.',
-                );
-            }
-
+        if (alreadyReacted) {
             removeLocalReaction(message, {
                 user_id: user.value.id,
                 type,
             });
-        } else {
-            const response = await fetch(
-                `/api/conversations/${activeConversation.value.id}/messages/${message.id}/reactions`,
-                {
-                    method: 'POST',
-                    headers: {
-                        ...apiHeaders(),
-                        'Content-Type':
-                            'application/json',
-                    },
-                    body: JSON.stringify({
-                        type,
-                    }),
-                },
-            );
-
-            const data =
-                await response.json();
-
-            if (!response.ok) {
-                throw new Error(
-                    data.message ||
-                        'Failed to add reaction.',
-                );
-            }
-
-            if (data.data) {
-                addLocalReaction(
-                    message,
-                    data.data,
-                );
-            }
+        } else if (data.data) {
+            addLocalReaction(message, data.data);
         }
     } catch (err) {
         error.value =
@@ -849,7 +1454,15 @@ const toggleReaction = async (
             'Failed to update reaction.';
     } finally {
         reactingMessageId.value = null;
+        activeReactionMessageId.value = null;
     }
+};
+
+const toggleReactionPicker = (message) => {
+    activeReactionMessageId.value =
+        activeReactionMessageId.value === message.id
+            ? null
+            : message.id;
 };
 
 const isMyMessage = (message) => {
@@ -909,6 +1522,19 @@ const formatMessageTime = (date) => {
     ).format(parsedDate);
 };
 
+const sortMessagesByTime = (list = []) => {
+    return [...list].sort((a, b) => {
+        const left = a?.created_at
+            ? new Date(a.created_at).getTime()
+            : 0;
+        const right = b?.created_at
+            ? new Date(b.created_at).getTime()
+            : 0;
+
+        return left - right;
+    });
+};
+
 const formatConversationTime = (date) => {
     if (!date) {
         return '';
@@ -941,15 +1567,34 @@ const formatConversationTime = (date) => {
 const getConversationPreview = (
     conversation,
 ) => {
-    return (
-        conversation?.latest_message?.body ??
-        conversation?.last_message?.body ??
-        'No messages yet'
-    );
+    const latestMessage =
+        conversation?.latest_message ??
+        conversation?.last_message;
+
+    if (latestMessage?.body) {
+        return latestMessage.body;
+    }
+
+    if (latestMessage?.attachment_mime?.startsWith('image/')) {
+        return 'Image';
+    }
+
+    if (latestMessage?.attachment_mime?.startsWith('video/')) {
+        return 'Video';
+    }
+
+    if (latestMessage?.attachment_url || latestMessage?.attachment_path) {
+        return 'Attachment';
+    }
+
+    return 'No messages yet';
 };
 
 let searchTimeout = null;
 let echoChannel = null;
+let echoPrivateChannel = null;
+let typingTimeout = null;
+let typingStopTimeout = null;
 
 const subscribeToConversation = (
     conversation,
@@ -962,12 +1607,41 @@ const subscribeToConversation = (
 
     echoChannel = conversation.id;
 
-    window.Echo.private(
+    echoPrivateChannel = window.Echo.join(
         `conversation.${conversation.id}`,
-    )
+    );
+
+    echoPrivateChannel
+        .here((participants) => {
+            const otherUser = getOtherUser(conversation);
+
+            otherUserOnline.value = participants.some(
+                (participant) =>
+                    Number(participant.id) === Number(otherUser?.id),
+            );
+        })
+        .joining((participant) => {
+            const otherUser = getOtherUser(conversation);
+
+            if (Number(participant.id) === Number(otherUser?.id)) {
+                otherUserOnline.value = true;
+            }
+        })
+        .leaving((participant) => {
+            const otherUser = getOtherUser(conversation);
+
+            if (Number(participant.id) === Number(otherUser?.id)) {
+                otherUserOnline.value = false;
+            }
+        })
         .listen(
             '.message.sent',
             (message) => {
+                knownLatestMessageIds.set(
+                    Number(conversation.id),
+                    Number(message.id),
+                );
+
                 if (
                     !messages.value.some(
                         (existingMessage) =>
@@ -983,6 +1657,10 @@ const subscribeToConversation = (
                             message.reactions ??
                             [],
                     });
+
+                    messages.value = sortMessagesByTime(
+                        messages.value,
+                    );
                 }
 
                 const conversationIndex =
@@ -1002,8 +1680,36 @@ const subscribeToConversation = (
                     ].latest_message =
                         message;
                 }
+
+                showIncomingAlert(message);
             },
         )
+        .listenForWhisper('typing', (payload) => {
+            if (Number(payload?.user_id) === Number(user.value?.id)) {
+                return;
+            }
+
+            otherUserTyping.value = Boolean(payload?.typing);
+
+            clearTimeout(typingTimeout);
+
+            if (payload?.typing) {
+                typingTimeout = setTimeout(() => {
+                    otherUserTyping.value = false;
+                }, 2000);
+            }
+        })
+        .listen('.messages.read', (payload) => {
+            if (Number(payload?.reader_id) === Number(user.value?.id)) {
+                return;
+            }
+
+            messages.value.forEach((message) => {
+                if (Number(message.sender_id) === Number(user.value?.id)) {
+                    message.read_at = payload.read_at;
+                }
+            });
+        })
         .listen(
             '.reaction.added',
             (reaction) => {
@@ -1042,7 +1748,36 @@ const subscribeToConversation = (
         );
 };
 
+const handleTyping = () => {
+    if (!echoPrivateChannel || !user.value) {
+        return;
+    }
+
+    echoPrivateChannel.whisper('typing', {
+        user_id: user.value.id,
+        typing: true,
+    });
+
+    clearTimeout(typingStopTimeout);
+
+    typingStopTimeout = setTimeout(() => {
+        echoPrivateChannel?.whisper('typing', {
+            user_id: user.value.id,
+            typing: false,
+        });
+    }, 1000);
+};
+
 const leaveCurrentChannel = () => {
+    clearInterval(messageRefreshInterval);
+    clearTimeout(incomingAlertTimeout);
+    incomingAlert.value = null;
+    clearTimeout(typingTimeout);
+    clearTimeout(typingStopTimeout);
+    otherUserTyping.value = false;
+    otherUserOnline.value = false;
+    echoPrivateChannel = null;
+
     if (!window.Echo || !echoChannel) {
         echoChannel = null;
         return;
@@ -1056,23 +1791,26 @@ const leaveCurrentChannel = () => {
 };
 
 onMounted(async () => {
+    window.addEventListener('keydown', handlePreviewKeydown);
     await loadUser();
+    startConversationRefresh();
 });
 
 onUnmounted(() => {
+    window.removeEventListener('keydown', handlePreviewKeydown);
+    clearInterval(conversationRefreshInterval);
     clearTimeout(searchTimeout);
+    clearTimeout(messageSearchTimeout);
+    clearTimeout(typingTimeout);
+    clearTimeout(typingStopTimeout);
     leaveCurrentChannel();
 });
 </script>
 
 <template>
     <main
-        class="h-[100dvh] overflow-hidden bg-slate-950 text-white"
+        class="h-[100svh] min-h-[100dvh] overflow-hidden bg-slate-950 text-white"
     >
-        <!-- =========================================================
-             AUTHENTICATION
-        ========================================================== -->
-
         <section
             v-if="!user"
             class="flex h-[100dvh] items-center justify-center overflow-y-auto px-4 py-8"
@@ -1353,6 +2091,14 @@ onUnmounted(() => {
 
                             <button
                                 type="button"
+                                class="shrink-0 rounded-xl px-3 py-2 text-sm text-emerald-400 transition hover:bg-slate-800"
+                                @click="openGroupCreator"
+                            >
+                                + Group
+                            </button>
+
+                            <button
+                                type="button"
                                 class="shrink-0 rounded-xl px-3 py-2 text-sm text-slate-400 transition hover:bg-slate-800 hover:text-white"
                                 @click="logout"
                             >
@@ -1419,9 +2165,9 @@ onUnmounted(() => {
                                         type="button"
                                         class="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-800"
                                         @click="
-                                            openUserConversation(
-                                                searchedUser,
-                                            )
+                                            showGroupCreator
+                                                ? toggleGroupMember(searchedUser)
+                                                : openUserConversation(searchedUser)
                                         "
                                     >
                                         <div
@@ -1455,9 +2201,15 @@ onUnmounted(() => {
                                         </div>
 
                                         <span
-                                            class="text-xs text-emerald-400"
+                                            class="text-xs"
+                                            :class="
+                                                showGroupCreator && isGroupMember(searchedUser)
+                                                    ? 'text-emerald-400'
+                                                    : 'text-slate-500'
+                                            "
+                                            @click.stop="addFriend(searchedUser)"
                                         >
-                                            Chat
+                                            Add friend
                                         </span>
                                     </button>
                                 </div>
@@ -1564,10 +2316,9 @@ onUnmounted(() => {
                                         class="truncate font-semibold text-white"
                                     >
                                         {{
-                                            getOtherUser(
+                                            getConversationTitle(
                                                 conversation,
-                                            )?.name ??
-                                            'Unknown user'
+                                            )
                                         }}
                                     </h2>
 
@@ -1634,6 +2385,7 @@ onUnmounted(() => {
                             <button
                                 type="button"
                                 class="flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-slate-500 transition hover:bg-slate-800 hover:text-white"
+                                @click="openProfile"
                             >
                                 <span class="text-xl leading-none">👤</span>
                                 <span class="text-[11px] font-semibold">Profile</span>
@@ -1666,6 +2418,23 @@ onUnmounted(() => {
                                 </p>
                             </div>
                         </div>
+
+                        <button
+                            type="button"
+                            class="mt-3 w-full rounded-lg border border-slate-700 px-3 py-2 text-left text-xs font-semibold text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                            @click="openProfile"
+                        >
+                            Edit profile
+                        </button>
+
+                        <button
+                            v-if="!notificationsEnabled"
+                            type="button"
+                            class="mt-2 w-full rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                            @click="enableNotifications"
+                        >
+                            Enable notifications
+                        </button>
                     </div>
                 </aside>
 
@@ -1706,15 +2475,13 @@ onUnmounted(() => {
 
                         <!-- AVATAR -->
 
-                        <div
-                            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500 font-bold text-slate-950"
-                        >
+                            <div
+                                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500 font-bold text-slate-950"
+                            >
                             {{
-                                getUserInitial(
-                                    getOtherUser(
-                                        activeConversation,
-                                    ),
-                                )
+                                    isGroupConversation(activeConversation)
+                                        ? activeConversation.name?.charAt(0)?.toUpperCase() ?? 'G'
+                                        : getUserInitial(getOtherUser(activeConversation))
                             }}
                         </div>
 
@@ -1727,20 +2494,87 @@ onUnmounted(() => {
                                 class="truncate font-bold text-white"
                             >
                                 {{
-                                    getOtherUser(
+                                    getConversationTitle(
                                         activeConversation,
-                                    )?.name ??
-                                    'Unknown user'
+                                    )
                                 }}
                             </h2>
 
                             <p
+                                v-if="!isGroupConversation(activeConversation)"
                                 class="truncate text-sm text-slate-500"
                             >
                                 @{{ getOtherUser(activeConversation)?.username }}
                             </p>
+                            <button
+                                v-else
+                                type="button"
+                                class="text-xs text-slate-500 hover:text-emerald-400"
+                                @click="openGroupMembers"
+                            >
+                                {{ activeConversation.users?.length ?? 0 }} members
+                            </button>
+
+                            <div
+                                class="mt-1 flex items-center gap-1.5 text-xs"
+                                :class="
+                                    otherUserOnline
+                                        ? 'text-emerald-400'
+                                        : 'text-slate-500'
+                                "
+                            >
+                                <span
+                                    class="h-1.5 w-1.5 rounded-full"
+                                    :class="
+                                        otherUserOnline
+                                            ? 'bg-emerald-400'
+                                            : 'bg-slate-600'
+                                    "
+                                ></span>
+
+                                {{
+                                    otherUserOnline
+                                        ? 'Online'
+                                        : 'Offline'
+                                }}
+                            </div>
                         </div>
+
+                        <button
+                            v-if="isGroupConversation(activeConversation)"
+                            type="button"
+                            class="shrink-0 rounded-lg px-2 py-2 text-xs font-semibold text-emerald-400 hover:bg-slate-800"
+                            @click="openMemberManager"
+                        >
+                            + Add
+                        </button>
                     </header>
+
+                    <div
+                        v-if="incomingAlert"
+                        class="pointer-events-none absolute right-4 top-20 z-40 max-w-xs rounded-xl border border-emerald-500/40 bg-slate-900 px-4 py-3 shadow-2xl"
+                    >
+                        <p class="text-xs font-semibold text-emerald-400">
+                            {{ incomingAlert.sender }}
+                        </p>
+                        <p class="mt-1 truncate text-sm text-white">
+                            {{ incomingAlert.body }}
+                        </p>
+                    </div>
+
+                    <div
+                        v-if="activeConversation"
+                        class="shrink-0 border-b border-slate-800 bg-slate-900 px-3 py-2 sm:px-5"
+                    >
+                        <input
+                            v-model="messageSearchQuery"
+                            type="search"
+                            placeholder="Search messages..."
+                            autocomplete="off"
+                            class="mx-auto block w-full max-w-4xl rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-emerald-500"
+                            @input="searchMessages"
+                        />
+                    </div>
 
                     <!-- =================================================
                          EMPTY DESKTOP/TABLET STATE
@@ -1783,11 +2617,20 @@ onUnmounted(() => {
                         ================================================== -->
 
                         <div
+                            ref="messageScrollContainer"
                             class="min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-6 sm:py-6"
+                            @scroll="handleMessageScroll"
                         >
                             <div
                                 class="mx-auto flex w-full max-w-4xl flex-col gap-4"
                             >
+                                <div
+                                    v-if="loadingOlderMessages"
+                                    class="py-1 text-center text-xs text-slate-500"
+                                >
+                                    Loading older messages...
+                                </div>
+
                                 <!-- LOADING -->
 
                                 <div
@@ -1854,14 +2697,17 @@ onUnmounted(() => {
                                             <!-- MESSAGE ACTIONS -->
 
                                             <div
-                                                class="absolute -top-9 z-10 hidden items-center gap-1 rounded-xl border border-slate-700 bg-slate-900 p-1 shadow-xl group-hover:flex"
-                                                :class="
-                                                    isMyMessage(
-                                                        message,
-                                                    )
+                                                class="absolute -top-9 z-10 hidden items-center gap-1 rounded-xl border border-slate-700 bg-slate-900 p-1 shadow-xl sm:group-hover:flex"
+                                                :class="[
+                                                    isMyMessage(message)
                                                         ? 'right-0'
-                                                        : 'left-0'
-                                                "
+                                                        : 'left-0',
+                                                    {
+                                                        '!flex sm:hidden':
+                                                            activeReactionMessageId ===
+                                                            message.id,
+                                                    },
+                                                ]"
                                             >
                                                 <!-- HEART -->
 
@@ -1901,6 +2747,11 @@ onUnmounted(() => {
 
                                                 <div
                                                     class="hidden items-center gap-1 lg:flex"
+                                                    :class="{
+                                                        '!flex':
+                                                            activeReactionMessageId ===
+                                                            message.id,
+                                                    }"
                                                 >
                                                     <button
                                                         v-for="reactionType in reactionTypes.filter(
@@ -1996,8 +2847,51 @@ onUnmounted(() => {
                                                         ? 'rounded-br-md bg-emerald-500 text-slate-950'
                                                         : 'rounded-bl-md bg-slate-800 text-white'
                                                 "
+                                                @click="
+                                                    toggleReactionPicker(
+                                                        message,
+                                                    )
+                                                "
                                             >
                                                 <p
+                                                    v-if="isGroupConversation(activeConversation) && !isMyMessage(message)"
+                                                    class="mb-1 text-xs font-semibold text-emerald-400"
+                                                >
+                                                    {{ message.sender?.name ?? 'Unknown user' }}
+                                                </p>
+
+                                                <p
+                                                    v-if="message.attachment_url && message.attachment_mime?.startsWith('image/')"
+                                                    class="mb-2"
+                                                >
+                                                    <img
+                                                        :src="message.attachment_url"
+                                                        :alt="message.attachment_name ?? 'Attached image'"
+                                                        class="max-h-64 max-w-full cursor-zoom-in rounded-lg object-contain"
+                                                        @click.stop="openImagePreview(message)"
+                                                    />
+                                                </p>
+
+                                                <video
+                                                    v-if="message.attachment_url && message.attachment_mime?.startsWith('video/')"
+                                                    :src="message.attachment_url"
+                                                    controls
+                                                    playsinline
+                                                    class="mb-2 max-h-72 max-w-full rounded-lg"
+                                                ></video>
+
+                                                <a
+                                                    v-if="message.attachment_url && !message.attachment_mime?.startsWith('image/') && !message.attachment_mime?.startsWith('video/')"
+                                                    :href="message.attachment_url"
+                                                    target="_blank"
+                                                    rel="noopener"
+                                                    class="mb-2 block break-all text-sm underline"
+                                                >
+                                                    {{ message.attachment_name ?? 'Download attachment' }}
+                                                </a>
+
+                                                <p
+                                                    v-if="message.body"
                                                     class="whitespace-pre-wrap break-words text-sm leading-6 sm:text-[15px]"
                                                 >
                                                     {{
@@ -2023,6 +2917,14 @@ onUnmounted(() => {
                                                                 message.created_at,
                                                             )
                                                         }}
+                                                    </span>
+
+                                                    <span
+                                                        v-if="isMyMessage(message) && message.read_at"
+                                                        class="ml-1 text-[10px]"
+                                                        :class="isMyMessage(message) ? 'text-slate-700' : 'text-slate-500'"
+                                                    >
+                                                        Read
                                                     </span>
                                                 </div>
                                             </div>
@@ -2168,6 +3070,17 @@ onUnmounted(() => {
                                 sendMessage
                             "
                         >
+                            <div
+                                v-if="otherUserTyping"
+                                class="mx-auto mb-2 max-w-4xl text-xs text-slate-500"
+                            >
+                                {{
+                                    getOtherUser(
+                                        activeConversation,
+                                    )?.name ?? 'Someone'
+                                }} is typing...
+                            </div>
+
                             <!-- EMOJI PICKER -->
 
                             <div
@@ -2207,6 +3120,23 @@ onUnmounted(() => {
                                     😊
                                 </button>
 
+                                <input
+                                    ref="messageFileInput"
+                                    type="file"
+                                    accept="image/*,video/*,.pdf,.doc,.docx,.txt"
+                                    class="hidden"
+                                    @change="selectMessageFile"
+                                />
+
+                                <button
+                                    type="button"
+                                    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700 bg-slate-800 text-lg transition hover:bg-slate-700"
+                                    title="Attach file"
+                                    @click="messageFileInput?.click()"
+                                >
+                                    📎
+                                </button>
+
                                 <!-- MESSAGE INPUT -->
 
                                 <input
@@ -2217,6 +3147,7 @@ onUnmounted(() => {
                                     placeholder="Type a message..."
                                     autocomplete="off"
                                     class="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-emerald-500 sm:px-4"
+                                    @input="handleTyping"
                                 />
 
                                 <!-- SEND -->
@@ -2225,7 +3156,7 @@ onUnmounted(() => {
                                     type="submit"
                                     :disabled="
                                         sendingMessage ||
-                                        !messageBody.trim()
+                                        (!messageBody.trim() && !selectedMessageFile)
                                     "
                                     class="flex h-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500 px-4 font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 sm:px-5"
                                 >
@@ -2256,4 +3187,266 @@ onUnmounted(() => {
             </div>
         </section>
     </main>
+
+    <div
+        v-if="showGroupMembers"
+        class="fixed inset-0 z-[85] flex items-center justify-center bg-black/70 p-4"
+        @click.self="closeGroupMembers"
+    >
+        <div class="max-h-[80dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+            <div class="flex items-center justify-between">
+                <h2 class="text-xl font-bold">Group members</h2>
+                <button
+                    type="button"
+                    class="text-2xl text-slate-400 hover:text-white"
+                    aria-label="Close group members"
+                    @click="closeGroupMembers"
+                >
+                    ×
+                </button>
+            </div>
+
+            <div class="mt-5 divide-y divide-slate-800 rounded-xl border border-slate-700">
+                <div
+                    v-for="member in activeConversation?.users ?? []"
+                    :key="member.id"
+                    class="flex items-center gap-3 px-3 py-3"
+                >
+                    <div class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 font-bold text-slate-950">
+                        {{ getUserInitial(member) }}
+                    </div>
+                    <div class="min-w-0">
+                        <p class="truncate font-semibold text-white">{{ member.name }}</p>
+                        <p class="truncate text-xs text-slate-500">@{{ member.username }}</p>
+                    </div>
+                    <span
+                        v-if="Number(member.id) === Number(user?.id)"
+                        class="ml-auto text-xs text-emerald-400"
+                    >
+                        You
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div
+        v-if="showMemberManager"
+        class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+        @click.self="closeMemberManager"
+    >
+        <form
+            class="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
+            @submit.prevent="addMembersToGroup"
+        >
+            <div class="flex items-center justify-between">
+                <h2 class="text-xl font-bold">Add group members</h2>
+                <button type="button" class="text-2xl text-slate-400" @click="closeMemberManager">×</button>
+            </div>
+
+            <div class="mt-5 overflow-hidden rounded-xl border border-slate-700">
+                <button
+                    v-for="friend in friends"
+                    :key="friend.id"
+                    v-show="!isConversationMember(friend)"
+                    type="button"
+                    class="flex w-full items-center justify-between border-b border-slate-800 px-3 py-3 text-left last:border-b-0 hover:bg-slate-800"
+                    @click="toggleAdditionalMember(friend)"
+                >
+                    <span class="text-sm text-white">{{ friend.name }}</span>
+                    <span class="text-xs text-emerald-400">
+                        {{ additionalMembers.some((member) => Number(member.id) === Number(friend.id)) ? 'Added' : 'Add' }}
+                    </span>
+                </button>
+            </div>
+
+            <p v-if="!friends.some((friend) => !isConversationMember(friend))" class="mt-3 text-sm text-slate-500">
+                All your friends are already in this group.
+            </p>
+
+            <button
+                type="submit"
+                :disabled="!additionalMembers.length"
+                class="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                Add selected members
+            </button>
+        </form>
+    </div>
+
+    <div
+        v-if="showGroupCreator"
+        class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+        @click.self="closeGroupCreator"
+    >
+        <form
+            class="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
+            @submit.prevent="createGroup"
+        >
+            <div class="flex items-center justify-between">
+                <h2 class="text-xl font-bold">Create group</h2>
+                <button type="button" class="text-2xl text-slate-400" @click="closeGroupCreator">×</button>
+            </div>
+
+            <input
+                v-model="groupName"
+                required
+                maxlength="100"
+                placeholder="Group name"
+                class="mt-5 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-emerald-500"
+            />
+
+            <p class="mt-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Choose from your friends
+            </p>
+
+            <div v-if="loadingFriends" class="mt-3 text-sm text-slate-500">
+                Loading friends...
+            </div>
+
+            <div v-else-if="friends.length" class="mt-2 overflow-hidden rounded-xl border border-slate-700">
+                <button
+                    v-for="friend in friends"
+                    :key="friend.id"
+                    type="button"
+                    class="flex w-full items-center justify-between border-b border-slate-800 px-3 py-2 text-left last:border-b-0 hover:bg-slate-800"
+                    @click="toggleGroupMember(friend)"
+                >
+                    <span class="text-sm text-white">{{ friend.name }}</span>
+                    <span class="text-xs text-emerald-400">
+                        {{ isGroupMember(friend) ? 'Added' : 'Add' }}
+                    </span>
+                </button>
+            </div>
+
+            <p v-else class="mt-3 text-sm text-slate-500">
+                Add friends from user search before creating a group.
+            </p>
+
+            <div v-if="groupMembers.length" class="mt-3 flex flex-wrap gap-2">
+                <span
+                    v-for="member in groupMembers"
+                    :key="member.id"
+                    class="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-slate-950"
+                >
+                    {{ member.name }}
+                </span>
+            </div>
+
+            <button
+                type="submit"
+                :disabled="loadingConversations || groupMembers.length === 0"
+                class="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                {{ loadingConversations ? 'Creating...' : 'Create group' }}
+            </button>
+        </form>
+    </div>
+
+    <div
+        v-if="showProfile"
+        class="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4"
+        @click.self="closeProfile"
+    >
+        <form
+            class="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl sm:p-7"
+            @submit.prevent="updateProfile"
+        >
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-white">Your profile</h2>
+                    <p class="mt-1 text-sm text-slate-500">Update your account details</p>
+                </div>
+
+                <button
+                    type="button"
+                    class="text-2xl text-slate-400 hover:text-white"
+                    aria-label="Close profile"
+                    @click="closeProfile"
+                >
+                    ×
+                </button>
+            </div>
+
+            <div
+                v-if="error"
+                class="mt-5 rounded-lg border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-300"
+            >
+                {{ error }}
+            </div>
+
+            <label class="mt-5 block text-sm font-medium text-slate-300">Full name</label>
+            <input
+                v-model="profileForm.name"
+                required
+                class="mt-2 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-emerald-500"
+            />
+
+            <label class="mt-4 block text-sm font-medium text-slate-300">Username</label>
+            <input
+                v-model="profileForm.username"
+                required
+                class="mt-2 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-emerald-500"
+            />
+
+            <label class="mt-4 block text-sm font-medium text-slate-300">Email</label>
+            <input
+                v-model="profileForm.email"
+                type="email"
+                required
+                class="mt-2 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-emerald-500"
+            />
+
+            <label class="mt-4 block text-sm font-medium text-slate-300">New password</label>
+            <input
+                v-model="profileForm.password"
+                type="password"
+                minlength="8"
+                autocomplete="new-password"
+                placeholder="Leave blank to keep current password"
+                class="mt-2 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-emerald-500"
+            />
+
+            <input
+                v-model="profileForm.password_confirmation"
+                type="password"
+                minlength="8"
+                autocomplete="new-password"
+                placeholder="Confirm new password"
+                class="mt-3 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-emerald-500"
+            />
+
+            <button
+                type="submit"
+                :disabled="savingProfile"
+                class="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                {{ savingProfile ? 'Saving...' : 'Save profile' }}
+            </button>
+        </form>
+    </div>
+
+    <div
+        v-if="previewImage"
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="previewImage.name"
+        @click.self="closeImagePreview"
+    >
+        <button
+            type="button"
+            class="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-2xl text-white transition hover:bg-white/20"
+            aria-label="Close image preview"
+            @click="closeImagePreview"
+        >
+            ×
+        </button>
+
+        <img
+            :src="previewImage.url"
+            :alt="previewImage.name"
+            class="max-h-[90vh] max-w-[95vw] object-contain"
+        />
+    </div>
 </template>

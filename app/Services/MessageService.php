@@ -7,17 +7,19 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Http\UploadedFile;
 
 class MessageService
 {
     public function send(
         Conversation $conversation,
         User $sender,
-        string $body
+        ?string $body,
+        ?UploadedFile $attachment = null
     ): Message {
-        return DB::transaction(function () use ($conversation, $sender, $body) {
+        return DB::transaction(function () use ($conversation, $sender, $body, $attachment) {
             $isParticipant = $conversation->users()
                 ->whereKey($sender->id)
                 ->exists();
@@ -28,9 +30,15 @@ class MessageService
                 );
             }
 
+            $attachmentPath = $attachment?->store('message-attachments', 'public');
+
             $message = $conversation->messages()->create([
                 'sender_id' => $sender->id,
                 'body' => $body,
+                'attachment_path' => $attachmentPath,
+                'attachment_name' => $attachment?->getClientOriginalName(),
+                'attachment_mime' => $attachment?->getMimeType(),
+                'attachment_size' => $attachment?->getSize(),
             ]);
 
             broadcast(new MessageSent($message))->toOthers();
@@ -42,7 +50,8 @@ class MessageService
     public function list(
         Conversation $conversation,
         User $user,
-        int $perPage = 20
+        int $perPage = 20,
+        ?string $search = null
     ): LengthAwarePaginator {
         $isParticipant = $conversation->users()
             ->whereKey($user->id)
@@ -54,10 +63,14 @@ class MessageService
             );
         }
 
-        return $conversation->messages()
+        $messages = $conversation->messages()
             ->with('sender')
-            ->latest()
-            ->paginate($perPage);
+            ->when($search, function ($query) use ($search) {
+                $query->where('body', 'like', '%' . $search . '%');
+            })
+            ->latest();
+
+        return $messages->paginate($perPage);
     }
 
     public function markAsRead(

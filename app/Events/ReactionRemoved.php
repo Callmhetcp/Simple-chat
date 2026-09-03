@@ -3,7 +3,7 @@
 namespace App\Events;
 
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -23,7 +23,7 @@ class ReactionRemoved implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel(
+            new PresenceChannel(
                 'conversation.' . $this->conversationId
             ),
         ];

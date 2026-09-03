@@ -66,4 +66,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(MessageReaction::class);
     }
+
+    public function friendships(): HasMany
+    {
+        return $this->hasMany(Friendship::class);
+    }
 }

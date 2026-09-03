@@ -15,14 +15,18 @@ Route::middleware('api')->group(function () {
         Route::get('/user', function (Request $request) {
             return $request->user();
         });
+        Route::patch('/user', [AuthController::class, 'updateProfile']);
 
         Route::post('/logout', [AuthController::class, 'logout']);
 
         Route::get('/users', [ConversationController::class, 'users']);
+        Route::get('/friends', [ConversationController::class, 'friends']);
+        Route::post('/friends/{user}', [ConversationController::class, 'addFriend']);
         Route::prefix('/conversations')->group(function () {
             Route::get('/', [ConversationController::class, 'index']);
             Route::post('/', [ConversationController::class, 'store']);
             Route::get('/{conversation}', [ConversationController::class, 'show']);
+            Route::patch('/{conversation}/members', [ConversationController::class, 'addMembers']);
 
             Route::prefix('/{conversation}')->group(function () {
                 Route::get('/messages', [MessageController::class, 'index']);

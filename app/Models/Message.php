@@ -13,11 +13,32 @@ class Message extends Model
         'sender_id',
         'body',
         'read_at',
+        'attachment_path',
+        'attachment_name',
+        'attachment_mime',
+        'attachment_size',
+    ];
+
+    protected $appends = [
+        'attachment_url',
     ];
 
     protected $casts = [
         'read_at' => 'datetime',
+        'attachment_size' => 'integer',
     ];
+
+    public function getAttachmentUrlAttribute(): ?string
+    {
+        if (! $this->attachment_path) {
+            return null;
+        }
+
+        return request()->getBaseUrl() . '/storage/' . ltrim(
+            $this->attachment_path,
+            '/'
+        );
+    }
 
     public function conversation(): BelongsTo
     {
